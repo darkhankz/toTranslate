@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>EPUB Tools</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .upload-section {
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            width: 50%;
+            vertical-align: top;
+        }
+        #preview {
+            display: none;
+        }
+        .loader {
+            display: none;
+            border: 5px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 5px solid #3498db;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+        }
+        .mode-selector {
+            margin: 10px 0;
+        }
+        .mode-section {
+            display: none;
+        }
+        .active {
+            display: block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>EPUB Tools</h1>
+    
+    <div class="mode-selector">
+        <button onclick="setMode('merge')">Объединить EPUB</button>
+        <button onclick="setMode('translate')">Перевести EPUB</button>
+    </div>
+
+    <div id="mergeSection" class="mode-section active">
+        <h3>Режим объединения:</h3>
+        <input type="file" id="file1" accept=".epub">
+        <input type="file" id="file2" accept=".epub">
+    </div>
+
+    <div id="translateSection" class="mode-section">
+        <h3>Режим перевода:</h3>
+        <input type="file" id="sourceFile" accept=".epub">
+        <select id="targetLang">
+            <option value="ru">Русский</option>
+            <option value="de">Немецкий</option>
+            <option value="fr">Французский</option>
+        </select>
+    </div>
+
+    <button onclick="processFiles()">Начать обработку</button>
+    <div class="loader" id="loader"></div>
+
+    <div id="preview">
+        <h3>Предпросмотр:</h3>
+        <table id="contentTable"></table>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0"></script>
+
+     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        // Упрощенная версия без переводчика
+        let currentMode = 'merge';
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-section').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.getElementById(mode + 'Section').classList.add('active');
+        }
+
+        async function extractTextFromEpub(file) {
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const htmlFiles = [];
+                
+                zip.forEach((relativePath, zipEntry) => {
+                    if (relativePath.match(/\.(html|xhtml)$/i)) {
+                        htmlFiles.push(zipEntry.async('text'));
+                    }
+                });
+
+                const contents = await Promise.all(htmlFiles);
+                return contents.join('\n')
+                          .replace(/<[^>]+>/g, '\n')
+                          .replace(/\n+/g, '\n')
+                          .split('\n')
+                          .filter(line => line.trim());
+            } catch (error) {
+                throw new Error(`Error reading EPUB: ${error.message}`);
+            }
+        }
+
+        function mergeContents(content1, content2) {
+            const maxLen = Math.max(content1.length, content2.length);
+            return Array.from({length: maxLen}, (_, i) => ({
+                col1: content1[i] || '',
+                col2: content2[i] || ''
+            }));
+        }
+
+        async function processFiles() {
+            const loader = document.getElementById('loader');
+            try {
+                loader.style.display = 'block';
+                
+                if (currentMode === 'merge') {
+                    const file1 = document.getElementById('file1').files[0];
+                    const file2 = document.getElementById('file2').files[0];
+                    
+                    if (!file1 || !file2) {
+                        throw new Error('Please upload both EPUB files');
+                    }
+
+                    const [content1, content2] = await Promise.all([
+                        extractTextFromEpub(file1),
+                        extractTextFromEpub(file2)
+                    ]);
+
+                    displayPreview(mergeContents(content1, content2));
+                    await generateEpub(content1, content2);
+                    
+                } else if (currentMode === 'translate') {
+                    throw new Error('Translation requires additional setup');
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+                console.error(error);
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        async function generateEpub(content1, content2) {
+            const zip = new JSZip();
+            
+            // Basic EPUB structure
+            zip.file('mimetype', 'application/epub+zip');
+            
+            const metaInf = zip.folder('META-INF');
+            metaInf.file('container.xml', `<?xml version="1.0"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                <rootfiles>
+                    <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
+                </rootfiles>
+            </container>`);
+
+            const content = `
+            <?xml version="1.0"?>
+            <!DOCTYPE html>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+                <head>
+                    <title>Merged Book</title>
+                </head>
+                <body>
+                    <h1>Merged Content</h1>
+                    ${content1.map((text, index) => `
+                        <div class="pair">
+                            <div class="original">${text}</div>
+                            <div class="translation">${content2[index] || ''}</div>
+                        </div>
+                    `).join('')}
+                </body>
+            </html>`;
+
+            zip.file('OEBPS/content.xhtml', content);
+            
+            // Generate and download
+            const blob = await zip.generateAsync({type: 'blob'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'merged-book.epub';
+            a.click();
+        }
+
+        function displayPreview(content) {
+            const table = document.getElementById('contentTable');
+            table.innerHTML = content.map(row => `
+                <tr>
+                    <td>${row.col1}</td>
+                    <td>${row.col2}</td>
+                </tr>
+            `).join('');
+            document.getElementById('preview').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
