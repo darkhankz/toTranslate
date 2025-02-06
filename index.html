@@ -17,34 +17,20 @@
             display: flex;
             width: 80%;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        .column {
+            width: 50%;
+            padding: 20px;
+            box-sizing: border-box;
         }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 10px;
-            text-align: left;
-            vertical-align: top;
-        }
-        th {
-            background-color: #f4f4f4;
+        .left {
+            border-right: 1px solid #ccc;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Original Text</th>
-                    <th>Translated Text</th>
-                </tr>
-            </thead>
-            <tbody id="translation-table">
-                <!-- Translated text will be inserted here -->
-            </tbody>
-        </table>
+        <div class="column left" id="original-text"></div>
+        <div class="column right" id="translated-text"></div>
     </div>
     <script src="script.js"></script>
 </body>
