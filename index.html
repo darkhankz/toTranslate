@@ -2,13 +2,13 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>EPUB Переводчик</title>
+  <title>EPUB Параллельный переводчик</title>
   <style>
     /* Стили для улучшения внешнего вида */
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      background-color: #f0f0f0;
+      background-color: #f8f8f8;
     }
     h1 {
       text-align: center;
@@ -17,7 +17,7 @@
       text-align: center;
       margin-bottom: 20px;
     }
-    #fileInput, #translateBtn, #encodingSelect {
+    #fileInput, #translateBtn, #encodingSelect, #downloadEPUBBtn {
       margin: 10px;
       padding: 10px 15px;
       font-size: 16px;
@@ -45,7 +45,7 @@
   </style>
 </head>
 <body>
-  <h1>EPUB Переводчик</h1>
+  <h1>EPUB Параллельный переводчик</h1>
   <div id="controls">
     <!-- Выбор кодировки -->
     <label for="encodingSelect">Кодировка:</label>
@@ -57,12 +57,14 @@
     <input type="file" id="fileInput" accept=".epub">
     <!-- Кнопка подтверждения перевода -->
     <button id="translateBtn">Подтвердить перевод</button>
+    <!-- Кнопка для скачивания готового EPUB (будет активна после перевода) -->
+    <button id="downloadEPUBBtn" disabled>Скачать готовый EPUB</button>
   </div>
 
-  <!-- Google Translate Widget (перевод всей страницы) -->
+  <!-- Google Translate Widget (перевод всей страницы, если нужно) -->
   <div id="google_translate_element"></div>
 
-  <!-- Таблица для отображения результатов -->
+  <!-- Таблица для отображения результатов перевода -->
   <table id="resultTable">
     <thead>
       <tr>
@@ -73,14 +75,14 @@
     <tbody></tbody>
   </table>
 
-  <!-- Подключение библиотеки JSZip для чтения EPUB (ZIP-архив) -->
+  <!-- Подключение библиотеки JSZip для чтения и создания EPUB -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   
   <script>
-    let fullText = "";
-    let chunks = [];
+    let paragraphs = [];      // Массив оригинальных абзацев
+    let translations = [];    // Массив переведённых абзацев
 
-    // Обработка события загрузки файла
+    // Обработка загрузки файла
     document.getElementById('fileInput').addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -92,11 +94,10 @@
         JSZip.loadAsync(arrayBuffer).then(function(zip) {
           const promises = [];
           zip.forEach(function(relativePath, zipEntry) {
-            if (/\.x?html$/i.test(relativePath)) {
-              // Для каждого HTML файла извлекаем содержимое как ArrayBuffer
+            // Обрабатываем HTML или XHTML файлы
+            if (/\.x?html?$/i.test(relativePath)) {
               promises.push(
                 zipEntry.async("arraybuffer").then(function(buffer) {
-                  // Выбираем кодировку, указанную пользователем
                   const encoding = document.getElementById('encodingSelect').value;
                   const decoder = new TextDecoder(encoding);
                   return decoder.decode(buffer);
@@ -106,16 +107,31 @@
           });
           return Promise.all(promises);
         }).then(function(fileContents) {
-          fullText = "";
+          paragraphs = [];
+          // Для каждого HTML-документа пытаемся получить абзацы (<p>).
           fileContents.forEach(function(content) {
-            // Парсим HTML и извлекаем текст из body
             const parser = new DOMParser();
             const doc = parser.parseFromString(content, 'text/html');
-            fullText += doc.body.textContent + "\n";
+            const pTags = doc.getElementsByTagName('p');
+            if (pTags.length > 0) {
+              for (let p of pTags) {
+                const text = p.textContent.trim();
+                if (text) paragraphs.push(text);
+              }
+            } else {
+              // Если <p> не найдены, пробуем разбить весь текст по переводу строк
+              let lines = doc.body.textContent.split('\n');
+              lines.forEach(line => {
+                const t = line.trim();
+                if (t) paragraphs.push(t);
+              });
+            }
           });
-          // Разбиваем текст на фрагменты по ~1000 символов (без разрыва слов)
-          chunks = splitTextIntoChunks(fullText, 1000);
-          alert("Файл успешно загружен. Текст разбит на " + chunks.length + " частей. Теперь нажмите кнопку 'Подтвердить перевод'.");
+          if (paragraphs.length === 0) {
+            alert("Не удалось найти текст для перевода.");
+            return;
+          }
+          alert("Файл успешно загружен. Найдено " + paragraphs.length + " абзацев. Теперь нажмите кнопку 'Подтвердить перевод'.");
         }).catch(function(err) {
           console.error("Ошибка чтения EPUB:", err);
           alert("Ошибка чтения EPUB файла.");
@@ -123,30 +139,6 @@
       };
       reader.readAsArrayBuffer(file);
     });
-
-    /**
-     * Разбивает текст на фрагменты, длиной не более maxLength символов, не разрывая слово.
-     * @param {string} text - исходный текст
-     * @param {number} maxLength - максимальная длина фрагмента
-     * @returns {Array} - массив строк
-     */
-    function splitTextIntoChunks(text, maxLength) {
-      const words = text.split(/\s+/);
-      const chunks = [];
-      let currentChunk = "";
-      for (let word of words) {
-        if ((currentChunk + " " + word).trim().length > maxLength) {
-          chunks.push(currentChunk.trim());
-          currentChunk = word;
-        } else {
-          currentChunk += " " + word;
-        }
-      }
-      if (currentChunk.trim().length > 0) {
-        chunks.push(currentChunk.trim());
-      }
-      return chunks;
-    }
 
     /**
      * Функция перевода текста с использованием неофициального API Google Translate.
@@ -180,15 +172,16 @@
 
     // Обработка нажатия кнопки "Подтвердить перевод"
     document.getElementById('translateBtn').addEventListener('click', async function() {
-      if (!chunks || chunks.length === 0) {
+      if (!paragraphs || paragraphs.length === 0) {
         alert("Пожалуйста, сначала загрузите EPUB файл.");
         return;
       }
       const tbody = document.getElementById('resultTable').querySelector('tbody');
       tbody.innerHTML = "";
-      for (let i = 0; i < chunks.length; i++) {
-        const original = chunks[i];
-        // Создаем строку таблицы с индикатором загрузки перевода
+      translations = [];
+      for (let i = 0; i < paragraphs.length; i++) {
+        const original = paragraphs[i];
+        // Создаем строку таблицы с индикатором перевода
         const row = document.createElement('tr');
         const origCell = document.createElement('td');
         origCell.textContent = original;
@@ -197,13 +190,126 @@
         row.appendChild(origCell);
         row.appendChild(transCell);
         tbody.appendChild(row);
-        // Переводим фрагмент
+        // Переводим абзац
         const translated = await translateText(original);
+        translations.push(translated);
         transCell.textContent = translated;
       }
+      // После окончания перевода делаем доступной кнопку для скачивания EPUB
+      document.getElementById('downloadEPUBBtn').disabled = false;
+      alert("Перевод завершён!");
     });
 
-    // Инициализация Google Translate Widget для перевода всей страницы
+    // Обработка нажатия кнопки для скачивания готового EPUB файла
+    document.getElementById('downloadEPUBBtn').addEventListener('click', function() {
+      createAndDownloadEPUB();
+    });
+
+    /**
+     * Создает минимальный EPUB с одной HTML страницей,
+     * содержащей таблицу с параллельным оригиналом и переводом,
+     * и инициирует скачивание файла.
+     */
+    function createAndDownloadEPUB() {
+      const zip = new JSZip();
+
+      // 1. Файл mimetype (обязателен, без сжатия)
+      zip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+
+      // 2. META-INF/container.xml
+      zip.folder("META-INF").file("container.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`);
+
+      // 3. ОEBPS/content.opf – минимальный метаописание
+      const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
+<package version="2.0" unique-identifier="BookId" xmlns="http://www.idpf.org/2007/opf">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Параллельный перевод</dc:title>
+    <dc:language>ru</dc:language>
+    <dc:identifier id="BookId">id123456</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="html" href="index.html" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="html"/>
+  </spine>
+</package>`;
+      // Создаем папку OEBPS
+      const oebps = zip.folder("OEBPS");
+      oebps.file("content.opf", contentOpf);
+
+      // 4. OEBPS/index.html – страница с параллельным переводом
+      let tableRows = "";
+      for (let i = 0; i < paragraphs.length; i++) {
+        tableRows += `<tr>
+  <td style="vertical-align: top; padding:8px; border:1px solid #ccc;">${escapeHtml(paragraphs[i])}</td>
+  <td style="vertical-align: top; padding:8px; border:1px solid #ccc;">${escapeHtml(translations[i] || "")}</td>
+</tr>`;
+      }
+
+      const indexHtml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Параллельный перевод</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding:20px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 8px; vertical-align: top; }
+    th { background-color: #e0e0e0; }
+  </style>
+</head>
+<body>
+  <h1>Параллельный перевод</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Оригинальный текст</th>
+        <th>Переведённый текст</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${tableRows}
+    </tbody>
+  </table>
+</body>
+</html>`;
+      oebps.file("index.html", indexHtml);
+
+      // Генерация EPUB как Blob и инициирование скачивания
+      zip.generateAsync({ type: "blob" }).then(function(blob) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "parallel_translation.epub";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+    }
+
+    /**
+     * Экранирует спецсимволы HTML
+     * @param {string} text 
+     * @returns {string}
+     */
+    function escapeHtml(text) {
+      if (!text) return "";
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Инициализация Google Translate Widget для перевода всей страницы (если требуется)
     function googleTranslateElementInit() {
       new google.translate.TranslateElement({pageLanguage: 'ru'}, 'google_translate_element');
     }
