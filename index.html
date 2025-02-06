@@ -17,7 +17,7 @@
       text-align: center;
       margin-bottom: 20px;
     }
-    #fileInput, #translateBtn {
+    #fileInput, #translateBtn, #encodingSelect {
       margin: 10px;
       padding: 10px 15px;
       font-size: 16px;
@@ -47,6 +47,12 @@
 <body>
   <h1>EPUB Переводчик</h1>
   <div id="controls">
+    <!-- Выбор кодировки -->
+    <label for="encodingSelect">Кодировка:</label>
+    <select id="encodingSelect">
+      <option value="utf-8">UTF-8</option>
+      <option value="windows-1251">Windows-1251</option>
+    </select>
     <!-- Кнопка загрузки EPUB файла -->
     <input type="file" id="fileInput" accept=".epub">
     <!-- Кнопка подтверждения перевода -->
@@ -69,6 +75,7 @@
 
   <!-- Подключение библиотеки JSZip для чтения EPUB (ZIP-архив) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  
   <script>
     let fullText = "";
     let chunks = [];
@@ -83,11 +90,18 @@
         const arrayBuffer = event.target.result;
         // Читаем EPUB как ZIP-архив
         JSZip.loadAsync(arrayBuffer).then(function(zip) {
-          // Собираем файлы с расширениями .html и .xhtml
           const promises = [];
           zip.forEach(function(relativePath, zipEntry) {
             if (/\.x?html$/i.test(relativePath)) {
-              promises.push(zipEntry.async("string"));
+              // Для каждого HTML файла извлекаем содержимое как ArrayBuffer
+              promises.push(
+                zipEntry.async("arraybuffer").then(function(buffer) {
+                  // Выбираем кодировку, указанную пользователем
+                  const encoding = document.getElementById('encodingSelect').value;
+                  const decoder = new TextDecoder(encoding);
+                  return decoder.decode(buffer);
+                })
+              );
             }
           });
           return Promise.all(promises);
@@ -99,9 +113,9 @@
             const doc = parser.parseFromString(content, 'text/html');
             fullText += doc.body.textContent + "\n";
           });
-          // Разбиваем текст на фрагменты по ~1000 символов (не разрывая слова)
+          // Разбиваем текст на фрагменты по ~1000 символов (без разрыва слов)
           chunks = splitTextIntoChunks(fullText, 1000);
-          alert("Файл загружен. Текст разбит на " + chunks.length + " частей. Теперь нажмите кнопку 'Подтвердить перевод'.");
+          alert("Файл успешно загружен. Текст разбит на " + chunks.length + " частей. Теперь нажмите кнопку 'Подтвердить перевод'.");
         }).catch(function(err) {
           console.error("Ошибка чтения EPUB:", err);
           alert("Ошибка чтения EPUB файла.");
@@ -111,7 +125,7 @@
     });
 
     /**
-     * Функция разбивки текста на фрагменты не более maxLength символов, так чтобы не разрывать слово.
+     * Разбивает текст на фрагменты, длиной не более maxLength символов, не разрывая слово.
      * @param {string} text - исходный текст
      * @param {number} maxLength - максимальная длина фрагмента
      * @returns {Array} - массив строк
@@ -147,7 +161,6 @@
         const response = await fetch(url);
         if (!response.ok) throw new Error("Ошибка сети");
         const data = await response.json();
-        // Собираем переведённые части из полученного ответа
         let translated = "";
         if (data && data[0]) {
           data[0].forEach(item => {
@@ -195,6 +208,7 @@
       new google.translate.TranslateElement({pageLanguage: 'ru'}, 'google_translate_element');
     }
   </script>
+  
   <!-- Подключение скрипта Google Translate Widget -->
   <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 </body>
