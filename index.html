@@ -8,29 +8,46 @@
         body {
             font-family: Arial, sans-serif;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
-            margin: 0;
+            padding: 20px;
         }
         .container {
-            display: flex;
             width: 80%;
+            margin-top: 20px;
         }
-        .column {
-            width: 50%;
-            padding: 20px;
-            box-sizing: border-box;
+        table {
+            width: 100%;
+            border-collapse: collapse;
         }
-        .left {
-            border-right: 1px solid #ccc;
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        #file-input {
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
+    <input type="file" id="file-input" accept=".epub">
     <div class="container">
-        <div class="column left" id="original-text"></div>
-        <div class="column right" id="translated-text"></div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Original Text</th>
+                    <th>Translated Text</th>
+                </tr>
+            </thead>
+            <tbody id="translation-table">
+                <!-- Translated text will be inserted here -->
+            </tbody>
+        </table>
     </div>
     <script src="script.js"></script>
 </body>
