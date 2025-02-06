@@ -1,54 +1,201 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EPUB Parallel Translator</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-        }
-        .container {
-            width: 80%;
-            margin-top: 20px;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #ccc;
-            padding: 10px;
-            text-align: left;
-            vertical-align: top;
-        }
-        th {
-            background-color: #f4f4f4;
-        }
-        #file-input {
-            margin-bottom: 20px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>EPUB Переводчик</title>
+  <style>
+    /* Стили для улучшения внешнего вида */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f0f0f0;
+    }
+    h1 {
+      text-align: center;
+    }
+    #controls {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    #fileInput, #translateBtn {
+      margin: 10px;
+      padding: 10px 15px;
+      font-size: 16px;
+    }
+    #google_translate_element {
+      margin: 20px auto;
+      width: fit-content;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #fff;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      vertical-align: top;
+    }
+    th {
+      background-color: #e0e0e0;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+  </style>
 </head>
 <body>
-    <input type="file" id="file-input" accept=".epub">
-    <div class="container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Original Text</th>
-                    <th>Translated Text</th>
-                </tr>
-            </thead>
-            <tbody id="translation-table">
-                <!-- Translated text will be inserted here -->
-            </tbody>
-        </table>
-    </div>
-    <script src="script.js"></script>
+  <h1>EPUB Переводчик</h1>
+  <div id="controls">
+    <!-- Кнопка загрузки EPUB файла -->
+    <input type="file" id="fileInput" accept=".epub">
+    <!-- Кнопка подтверждения перевода -->
+    <button id="translateBtn">Подтвердить перевод</button>
+  </div>
+
+  <!-- Google Translate Widget (перевод всей страницы) -->
+  <div id="google_translate_element"></div>
+
+  <!-- Таблица для отображения результатов -->
+  <table id="resultTable">
+    <thead>
+      <tr>
+        <th>Оригинальный текст</th>
+        <th>Переведенный текст</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- Подключение библиотеки JSZip для чтения EPUB (ZIP-архив) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script>
+    let fullText = "";
+    let chunks = [];
+
+    // Обработка события загрузки файла
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const arrayBuffer = event.target.result;
+        // Читаем EPUB как ZIP-архив
+        JSZip.loadAsync(arrayBuffer).then(function(zip) {
+          // Собираем файлы с расширениями .html и .xhtml
+          const promises = [];
+          zip.forEach(function(relativePath, zipEntry) {
+            if (/\.x?html$/i.test(relativePath)) {
+              promises.push(zipEntry.async("string"));
+            }
+          });
+          return Promise.all(promises);
+        }).then(function(fileContents) {
+          fullText = "";
+          fileContents.forEach(function(content) {
+            // Парсим HTML и извлекаем текст из body
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(content, 'text/html');
+            fullText += doc.body.textContent + "\n";
+          });
+          // Разбиваем текст на фрагменты по ~1000 символов (не разрывая слова)
+          chunks = splitTextIntoChunks(fullText, 1000);
+          alert("Файл загружен. Текст разбит на " + chunks.length + " частей. Теперь нажмите кнопку 'Подтвердить перевод'.");
+        }).catch(function(err) {
+          console.error("Ошибка чтения EPUB:", err);
+          alert("Ошибка чтения EPUB файла.");
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    /**
+     * Функция разбивки текста на фрагменты не более maxLength символов, так чтобы не разрывать слово.
+     * @param {string} text - исходный текст
+     * @param {number} maxLength - максимальная длина фрагмента
+     * @returns {Array} - массив строк
+     */
+    function splitTextIntoChunks(text, maxLength) {
+      const words = text.split(/\s+/);
+      const chunks = [];
+      let currentChunk = "";
+      for (let word of words) {
+        if ((currentChunk + " " + word).trim().length > maxLength) {
+          chunks.push(currentChunk.trim());
+          currentChunk = word;
+        } else {
+          currentChunk += " " + word;
+        }
+      }
+      if (currentChunk.trim().length > 0) {
+        chunks.push(currentChunk.trim());
+      }
+      return chunks;
+    }
+
+    /**
+     * Функция перевода текста с использованием неофициального API Google Translate.
+     * @param {string} text - текст для перевода
+     * @param {number} [attempt=1] - номер попытки перевода
+     * @returns {Promise<string>} - промис, возвращающий переведённый текст
+     */
+    async function translateText(text, attempt = 1) {
+      const maxAttempts = 3;
+      const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ru&dt=t&q=" + encodeURIComponent(text);
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Ошибка сети");
+        const data = await response.json();
+        // Собираем переведённые части из полученного ответа
+        let translated = "";
+        if (data && data[0]) {
+          data[0].forEach(item => {
+            translated += item[0];
+          });
+        }
+        return translated;
+      } catch (err) {
+        console.error("Ошибка перевода, попытка " + attempt, err);
+        if (attempt < maxAttempts) {
+          return translateText(text, attempt + 1);
+        } else {
+          return "Ошибка перевода";
+        }
+      }
+    }
+
+    // Обработка нажатия кнопки "Подтвердить перевод"
+    document.getElementById('translateBtn').addEventListener('click', async function() {
+      if (!chunks || chunks.length === 0) {
+        alert("Пожалуйста, сначала загрузите EPUB файл.");
+        return;
+      }
+      const tbody = document.getElementById('resultTable').querySelector('tbody');
+      tbody.innerHTML = "";
+      for (let i = 0; i < chunks.length; i++) {
+        const original = chunks[i];
+        // Создаем строку таблицы с индикатором загрузки перевода
+        const row = document.createElement('tr');
+        const origCell = document.createElement('td');
+        origCell.textContent = original;
+        const transCell = document.createElement('td');
+        transCell.textContent = "Переводится...";
+        row.appendChild(origCell);
+        row.appendChild(transCell);
+        tbody.appendChild(row);
+        // Переводим фрагмент
+        const translated = await translateText(original);
+        transCell.textContent = translated;
+      }
+    });
+
+    // Инициализация Google Translate Widget для перевода всей страницы
+    function googleTranslateElementInit() {
+      new google.translate.TranslateElement({pageLanguage: 'ru'}, 'google_translate_element');
+    }
+  </script>
+  <!-- Подключение скрипта Google Translate Widget -->
+  <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 </body>
 </html>
